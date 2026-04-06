@@ -709,6 +709,16 @@ input[type=file] { display:none; }
           </div>
         </div>
 
+        <!-- Leave balance tip banner -->
+        <div id="leaveTipBanner" style="background:var(--accent-light);border:1.5px solid var(--accent);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
+          <i class="fa fa-calendar-plus" style="color:var(--accent);font-size:20px;flex-shrink:0"></i>
+          <div style="flex:1">
+            <strong style="font-size:13px;color:var(--accent)">Set Opening Leave Balances</strong>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px">New employees start with 0 leave days. Click the <i class="fa fa-calendar-plus"></i> icon on any employee row to set their current leave balance. The system will then add 1.75 days each month automatically.</div>
+          </div>
+          <button class="btn btn-sm" style="background:var(--accent);color:#fff;flex-shrink:0" onclick="openBulkLeaveModal()"><i class="fa fa-layer-group"></i> Bulk Set Balances</button>
+        </div>
+
         <div class="grid grid-4 mb-4">
           <div class="stat-card">
             <div class="icon-wrap" style="background:var(--accent-light)"><i class="fa fa-users" style="color:var(--accent)"></i></div>
@@ -730,7 +740,7 @@ input[type=file] { display:none; }
 
         <div class="card">
           <div class="table-wrap"><table>
-            <thead><tr><th>Employee</th><th>Dept / Role</th><th>Email</th><th>Joined</th><th>Salary</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Employee</th><th>Dept / Role</th><th>Email</th><th>Joined</th><th>Leave Balance</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody id="empTable"></tbody>
           </table></div>
         </div>
@@ -892,6 +902,13 @@ input[type=file] { display:none; }
       </div>
       <div class="form-group"><label>Temporary Password *</label><input type="password" id="empPassword" placeholder="Employee's login password"></div>
       <div class="form-group"><label>Notes</label><textarea id="empNotes" placeholder="Any additional notes..."></textarea></div>
+      <div id="leaveBalanceSection" style="margin-top:8px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;padding-top:8px;border-top:1px solid var(--border)">
+          <i class="fa fa-calendar-alt" style="color:var(--accent)"></i> Leave Balance (days available)
+          <span style="font-weight:400;color:var(--text-light);margin-left:6px;text-transform:none;letter-spacing:0">— set opening balance for this employee</span>
+        </div>
+        <div id="leaveBalanceInputs" class="grid grid-2" style="gap:10px"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('empModal')">Cancel</button>
@@ -938,8 +955,8 @@ input[type=file] { display:none; }
     <div class="modal-body">
       <div style="background:var(--bg);border-radius:var(--radius-sm);padding:16px;margin-bottom:20px;font-size:13px">
         <strong>CSV Format (columns in order):</strong><br>
-        <code style="font-size:12px;color:var(--accent)">FirstName, LastName, Email, Phone, Department, Designation, JoiningDate, Salary, Role, Password</code><br><br>
-        <em style="color:var(--text-muted)">Role values: admin, hr, manager, employee | Date format: YYYY-MM-DD</em>
+        <code style="font-size:12px;color:var(--accent)">FirstName, LastName, Email, Phone, Department, Designation, JoiningDate, Salary, Role, Password, CasualLeave, SickLeave, PaidLeave</code><br><br>
+        <em style="color:var(--text-muted)">Role: admin / hr / manager / employee &nbsp;|&nbsp; Date: YYYY-MM-DD &nbsp;|&nbsp; Leave columns are opening balances in days (optional, default 0)</em>
       </div>
       <div class="upload-area" id="uploadArea" onclick="document.getElementById('csvFile').click()">
         <i class="fa fa-file-csv"></i>
@@ -967,6 +984,60 @@ input[type=file] { display:none; }
       <button class="close-btn" onclick="closeModal('empViewModal')"><i class="fa fa-times"></i></button>
     </div>
     <div class="modal-body" id="empViewBody"></div>
+  </div>
+</div>
+
+<!-- Leave Balance Modal -->
+<div class="modal-overlay" id="leaveBalModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3><i class="fa fa-calendar-plus" style="color:var(--accent)"></i> Manage Leave Balance</h3>
+      <button class="close-btn" onclick="closeModal('leaveBalModal')"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="lbModalEmpName" style="font-weight:600;font-size:15px;margin-bottom:4px"></div>
+      <div style="color:var(--text-muted);font-size:13px;margin-bottom:20px">Set the available leave balance for each leave type. This directly updates what the employee can use when applying for leaves.</div>
+      <div id="lbModalInputs" class="grid grid-2" style="gap:12px"></div>
+      <div style="margin-top:16px;padding:12px;background:var(--info-light);border-radius:var(--radius-sm);font-size:12px;color:var(--info)">
+        <i class="fa fa-info-circle"></i> Monthly auto-accrual (1.75 days/month) continues to add to these balances each month.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('leaveBalModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveLeaveBalance()"><i class="fa fa-save"></i> Save Balance</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Leave Balance Modal -->
+<div class="modal-overlay" id="bulkLeaveModal">
+  <div class="modal modal-lg" style="max-width:820px">
+    <div class="modal-header">
+      <h3><i class="fa fa-layer-group" style="color:var(--accent)"></i> Bulk Set Leave Balances</h3>
+      <button class="close-btn" onclick="closeModal('bulkLeaveModal')"><i class="fa fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div style="background:var(--info-light);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--info);display:flex;align-items:center;gap:10px">
+        <i class="fa fa-info-circle" style="flex-shrink:0"></i>
+        <span>Set the current leave balance for each employee. These are the days they can use right now. The system adds <strong>1.75 days</strong> to each non-Unpaid leave type on the 1st of every month automatically.</span>
+      </div>
+
+      <!-- Quick fill row -->
+      <div style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:16px;flex-wrap:wrap">
+        <span style="font-size:13px;font-weight:500;color:var(--text-muted)">Quick fill all employees:</span>
+        <select id="bulkFillType" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;outline:none"></select>
+        <span style="font-size:13px;color:var(--text-muted)">to</span>
+        <input type="number" id="bulkFillVal" value="0" min="0" step="0.5" style="width:80px;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;outline:none">
+        <span style="font-size:13px;color:var(--text-muted)">days</span>
+        <button class="btn btn-sm btn-secondary" onclick="bulkFillAll()"><i class="fa fa-fill-drip"></i> Apply to All</button>
+      </div>
+
+      <div id="bulkLeaveTable" style="max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm)"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('bulkLeaveModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveBulkLeaveBalance()"><i class="fa fa-save"></i> Save All Balances</button>
+    </div>
   </div>
 </div>
 
@@ -1290,6 +1361,11 @@ function loadDashboard() {
 }
 
 function loadEmpDashboard() {
+  // Always pull fresh employee record so leave balance reflects latest saves
+  const emps = getEmployees();
+  const freshEmp = emps.find(e=>e.id===currentUser.id);
+  if(freshEmp) currentUser = freshEmp;
+
   const today = new Date().toISOString().slice(0,10);
   const now = new Date();
   const month = today.slice(0,7);
@@ -1303,9 +1379,8 @@ function loadEmpDashboard() {
   const wdays = workingDaysInMonth(now.getFullYear(), now.getMonth());
   document.getElementById('empAbsentCount').textContent = Math.max(0, wdays - monthAtt.length);
 
-  // Leave balance
-  const emps = getEmployees(); const emp = emps.find(e=>e.id===currentUser.id);
-  const bal = emp?.leaveBalance||{};
+  // Leave balance — currentUser was refreshed at top of this function
+  const bal = currentUser.leaveBalance||{};
   const s = getSettings();
   let balHTML = '';
   (s.leaveTypes||LEAVE_TYPES_DEFAULT).forEach((t,i) => {
@@ -1515,9 +1590,11 @@ function exportAttendance() {
 function loadLeavesPage() {
   const s = getSettings();
   const types = s.leaveTypes || LEAVE_TYPES_DEFAULT;
+  // Always pull fresh employee record so balance is current
   const emps = getEmployees();
   const emp = emps.find(e=>e.id===currentUser.id);
-  const bal = emp?.leaveBalance || {};
+  if(emp) currentUser = emp;
+  const bal = currentUser.leaveBalance || {};
   const isAdmin = ['admin','hr','manager'].includes(currentUser.role);
 
   // Balance cards
@@ -1622,10 +1699,20 @@ function submitLeave() {
   if(!type||!from||!to||!reason) return toast('Please fill all fields','error');
   if(from>to) return toast('End date must be after start date','error');
   const days = workingDaysBetween(from,to);
+  if(days<=0) return toast('Please select valid working days','error');
   const emps = getEmployees();
   const emp = emps.find(e=>e.id===currentUser.id);
-  const bal = emp?.leaveBalance?.[type]||0;
-  if(type!=='Unpaid' && days>bal) return toast(`Insufficient ${type} leave balance (${bal.toFixed(1)} days available)`,'error');
+  const bal = (emp?.leaveBalance?.[type])||0;
+
+  // Only block non-admin non-unpaid leaves if balance is truly insufficient
+  if(type!=='Unpaid' && days>bal) {
+    const isAdmin = ['admin','hr'].includes(currentUser.role);
+    if(!isAdmin) {
+      return toast(`Insufficient ${type} leave balance. You have ${bal.toFixed(1)} days available. Please contact HR to top up your balance.`,'error');
+    }
+    // Admins/HR can override — just warn
+    toast(`Note: Submitting with insufficient balance (${bal.toFixed(1)} days available)`,'warning');
+  }
 
   const leave = { id:uid(), empId:currentUser.id, type, from, to, days, reason, status:'pending', submittedAt:new Date().toISOString(), approvedBy:null };
   const leaves = getLeaves(); leaves.push(leave); DB.set('leaves',leaves);
@@ -1637,6 +1724,7 @@ function submitLeave() {
   toast('Leave request submitted!');
   closeModal('leaveModal');
   ['leaveType','leaveFrom','leaveTo','leaveReason'].forEach(id=>{ const el=document.getElementById(id); if(el){el.value='';} });
+  document.getElementById('leaveDaysPreview').style.display='none';
   loadLeavesPage();
 }
 
@@ -1697,8 +1785,14 @@ function loadEmployeesPage() {
 }
 
 function renderEmpTable(emps) {
+  const s = getSettings();
+  const types = (s.leaveTypes||LEAVE_TYPES_DEFAULT).filter(t=>t!=='Unpaid');
   document.getElementById('empTable').innerHTML = emps.length ?
-    emps.map(e=>`<tr>
+    emps.map(e=>{
+      const bal = e.leaveBalance||{};
+      const totalBal = types.reduce((sum,t)=>sum+(bal[t]||0),0);
+      const balChips = types.map((t,i)=>`<span style="font-size:11px;background:${COLORS[i%COLORS.length]}18;color:${COLORS[i%COLORS.length]};padding:2px 7px;border-radius:10px;white-space:nowrap">${t[0]}: ${(bal[t]||0).toFixed(1)}</span>`).join(' ');
+      return `<tr>
       <td><div style="display:flex;align-items:center;gap:10px">
         <div class="avatar avatar-sm" style="background:${avatarColor(e.firstName+' '+e.lastName)};color:#fff">${initials(e.firstName+' '+e.lastName)}</div>
         <div><div style="font-weight:500">${e.firstName} ${e.lastName}</div><div class="text-muted text-sm">#${e.id.slice(-6).toUpperCase()}</div></div>
@@ -1706,14 +1800,15 @@ function renderEmpTable(emps) {
       <td><div>${e.department||'--'}</div><div class="text-muted text-sm">${e.designation||'--'}</div></td>
       <td>${e.email}</td>
       <td>${fmtDate(e.joined)||'--'}</td>
-      <td>${e.salary?'₹'+Number(e.salary).toLocaleString():'--'}</td>
+      <td><div style="display:flex;flex-wrap:wrap;gap:3px;align-items:center">${balChips||'<span class="text-muted text-sm">Not set</span>'}<span style="margin-left:4px;font-size:11px;color:var(--text-muted)">(${totalBal.toFixed(1)} total)</span></div></td>
       <td><span class="badge ${e.active?'badge-success':'badge-muted'}">${e.active?'Active':'Inactive'}</span></td>
       <td><div style="display:flex;gap:4px">
-        <button class="btn btn-sm btn-secondary" onclick="viewEmployee('${e.id}')"><i class="fa fa-eye"></i></button>
-        <button class="btn btn-sm btn-secondary" onclick="editEmployee('${e.id}')"><i class="fa fa-edit"></i></button>
+        <button class="btn btn-sm btn-secondary" onclick="viewEmployee('${e.id}')" title="View"><i class="fa fa-eye"></i></button>
+        <button class="btn btn-sm btn-secondary" onclick="editEmployee('${e.id}')" title="Edit"><i class="fa fa-edit"></i></button>
+        <button class="btn btn-sm" style="background:var(--accent-light);color:var(--accent);border:none" title="Set Leave Balance" onclick="openLeaveBalanceModal('${e.id}')"><i class="fa fa-calendar-plus"></i></button>
         <button class="btn btn-sm ${e.active?'btn-danger':'btn-success'}" onclick="toggleEmpStatus('${e.id}')">${e.active?'<i class="fa fa-ban"></i>':'<i class="fa fa-check"></i>'}</button>
       </div></td>
-    </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;padding:48px;color:var(--text-muted)"><i class="fa fa-users" style="font-size:48px;color:var(--border);display:block;margin-bottom:12px"></i>No employees yet. Add your first employee or import a CSV.</td></tr>';
+    </tr>`;}).join('') : '<tr><td colspan="7" style="text-align:center;padding:48px;color:var(--text-muted)"><i class="fa fa-users" style="font-size:48px;color:var(--border);display:block;margin-bottom:12px"></i>No employees yet. Add your first employee or import a CSV.</td></tr>';
 }
 
 function filterEmployees(q) {
@@ -1730,6 +1825,16 @@ function openEmpModal(id=null) {
   });
   document.getElementById('empRole').value='employee';
   document.getElementById('empManager').innerHTML='<option value="">None</option>'+getEmployees().filter(e=>['admin','hr','manager'].includes(e.role)).map(e=>`<option value="${e.id}">${e.firstName} ${e.lastName}</option>`).join('');
+
+  // Render leave balance inputs
+  const s = getSettings();
+  const types = s.leaveTypes || LEAVE_TYPES_DEFAULT;
+  const existingBal = id ? (getEmployees().find(e=>e.id===id)?.leaveBalance||{}) : {};
+  document.getElementById('leaveBalanceInputs').innerHTML = types.map(t=>`
+    <div class="form-group" style="margin:0">
+      <label>${t} Leave</label>
+      <input type="number" id="lb_${t.replace(/\s+/g,'_')}" value="${(existingBal[t]||0).toFixed(1)}" min="0" step="0.5" placeholder="0" style="width:100%">
+    </div>`).join('');
 
   if(id) {
     const emp = getEmployees().find(e=>e.id===id);
@@ -1761,6 +1866,15 @@ function saveEmployee() {
   if(emailExists) return toast('Email already exists','error');
 
   const s = getSettings();
+  const types = s.leaveTypes || LEAVE_TYPES_DEFAULT;
+
+  // Read leave balance from inputs
+  const newBal = {};
+  types.forEach(t => {
+    const inputId = 'lb_'+t.replace(/\s+/g,'_');
+    const el = document.getElementById(inputId);
+    newBal[t] = el ? Math.max(0, parseFloat(el.value)||0) : 0;
+  });
 
   if(editingEmpId) {
     const idx=emps.findIndex(e=>e.id===editingEmpId);
@@ -1769,17 +1883,20 @@ function saveEmployee() {
       phone:V('empPhone'), department:V('empDept'), designation:V('empDesig'),
       joined:V('empJoined'), salary:V('empSalary')||0, role:V('empRole'),
       managerId:V('empManager'), notes:V('empNotes'),
+      leaveBalance: newBal,
       ...(V('empPassword')?{password:V('empPassword')}:{})
     };
     DB.set('employees',emps);
+    // Refresh currentUser if editing self
+    if(editingEmpId===currentUser.id) currentUser=emps[idx];
     toast('Employee updated');
   } else {
-    const bal = {}; (s.leaveTypes||LEAVE_TYPES_DEFAULT).forEach(t=>bal[t]=0);
     const emp = {
       id:uid(), firstName, lastName, email, phone:V('empPhone'),
       department:V('empDept'), designation:V('empDesig'), joined:V('empJoined'),
       salary:V('empSalary')||0, role:V('empRole'), managerId:V('empManager'),
-      password, notes:V('empNotes'), active:true, leaveBalance:bal, createdAt:new Date().toISOString()
+      password, notes:V('empNotes'), active:true, leaveBalance: newBal,
+      createdAt:new Date().toISOString()
     };
     emps.push(emp);
     DB.set('employees',emps);
@@ -1849,9 +1966,114 @@ function viewEmployee(id) {
   openModal('empViewModal');
 }
 
-// ═══════════════════════════════════════════════════════════
-// CSV IMPORT
-// ═══════════════════════════════════════════════════════════
+function openLeaveBalanceModal(empId) {
+  const emp = getEmployees().find(e=>e.id===empId);
+  if(!emp) return;
+  const s = getSettings();
+  const types = s.leaveTypes || LEAVE_TYPES_DEFAULT;
+  const bal = emp.leaveBalance||{};
+
+  document.getElementById('lbModalEmpName').textContent = `${emp.firstName} ${emp.lastName} — ${emp.designation||emp.department||'Employee'}`;
+  document.getElementById('lbModalInputs').innerHTML = types.map(t=>`
+    <div class="form-group" style="margin:0">
+      <label style="display:flex;justify-content:space-between;align-items:center">
+        <span>${t} Leave</span>
+        ${t==='Unpaid'?'<span style="font-size:10px;color:var(--text-light);font-weight:400">no deduction</span>':''}
+      </label>
+      <div style="display:flex;align-items:center;gap:6px">
+        <input type="number" id="lbm_${t.replace(/\s+/g,'_')}" value="${(bal[t]||0).toFixed(1)}" min="0" step="0.5" style="flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-family:inherit;outline:none">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <button type="button" style="width:26px;height:22px;border:1px solid var(--border);border-radius:4px;background:#fff;cursor:pointer;font-size:12px" onclick="stepLb('lbm_${t.replace(/\s+/g,'_')}',0.5)">+</button>
+          <button type="button" style="width:26px;height:22px;border:1px solid var(--border);border-radius:4px;background:#fff;cursor:pointer;font-size:12px" onclick="stepLb('lbm_${t.replace(/\s+/g,'_')}',-0.5)">−</button>
+        </div>
+      </div>
+    </div>`).join('');
+
+  document.getElementById('leaveBalModal').dataset.empId = empId;
+  openModal('leaveBalModal');
+}
+
+function stepLb(inputId, delta) {
+  const el = document.getElementById(inputId);
+  if(el) el.value = Math.max(0, (parseFloat(el.value)||0) + delta).toFixed(1);
+}
+
+function saveLeaveBalance() {
+  const empId = document.getElementById('leaveBalModal').dataset.empId;
+  const emps = getEmployees();
+  const idx = emps.findIndex(e=>e.id===empId);
+  if(idx===-1) return;
+  const s = getSettings();
+  const types = s.leaveTypes || LEAVE_TYPES_DEFAULT;
+  if(!emps[idx].leaveBalance) emps[idx].leaveBalance={};
+  types.forEach(t=>{
+    const el = document.getElementById('lbm_'+t.replace(/\s+/g,'_'));
+    if(el) emps[idx].leaveBalance[t] = Math.max(0, parseFloat(el.value)||0);
+  });
+  DB.set('employees', emps);
+  if(currentUser && empId===currentUser.id) currentUser=emps[idx];
+  toast(`Leave balance updated for ${emps[idx].firstName} ${emps[idx].lastName}`);
+  closeModal('leaveBalModal');
+  if(document.getElementById('page-employees').classList.contains('active')) loadEmployeesPage();
+  if(document.getElementById('page-leaves').classList.contains('active')) loadLeavesPage();
+  if(document.getElementById('page-dashboard').classList.contains('active')) loadDashboard();
+}
+
+// ─── BULK LEAVE BALANCE ───
+function openBulkLeaveModal() {
+  const emps = getEmployees().filter(e=>e.active);
+  const s = getSettings();
+  const types = s.leaveTypes || LEAVE_TYPES_DEFAULT;
+
+  // Build a table: one row per employee, one input per leave type
+  let thead = '<tr><th style="min-width:160px">Employee</th>' + types.map(t=>`<th style="min-width:100px">${t}</th>`).join('') + '</tr>';
+  let tbody = emps.map(e=>{
+    const bal = e.leaveBalance||{};
+    return `<tr>
+      <td><div style="display:flex;align-items:center;gap:8px">
+        <div class="avatar avatar-sm" style="background:${avatarColor(e.firstName+' '+e.lastName)};color:#fff;flex-shrink:0">${initials(e.firstName+' '+e.lastName)}</div>
+        <span style="font-size:13px;font-weight:500">${e.firstName} ${e.lastName}</span>
+      </div></td>
+      ${types.map(t=>`<td><input type="number" data-emp="${e.id}" data-type="${t}" value="${(bal[t]||0).toFixed(1)}" min="0" step="0.5" style="width:80px;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;outline:none" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"></td>`).join('')}
+    </tr>`;
+  }).join('');
+
+  document.getElementById('bulkLeaveTable').innerHTML = `
+    <table style="width:100%;border-collapse:collapse">
+      <thead style="position:sticky;top:0;background:#fff;z-index:1">${thead}</thead>
+      <tbody>${tbody}</tbody>
+    </table>`;
+
+  // Quick-fill controls
+  document.getElementById('bulkFillType').innerHTML = types.map(t=>`<option value="${t}">${t}</option>`).join('');
+
+  openModal('bulkLeaveModal');
+}
+
+function bulkFillAll() {
+  const type = document.getElementById('bulkFillType').value;
+  const val  = parseFloat(document.getElementById('bulkFillVal').value)||0;
+  document.querySelectorAll(`#bulkLeaveTable input[data-type="${type}"]`).forEach(el=>{ el.value=val.toFixed(1); });
+}
+
+function saveBulkLeaveBalance() {
+  const emps = getEmployees();
+  const inputs = document.querySelectorAll('#bulkLeaveTable input[data-emp]');
+  inputs.forEach(inp=>{
+    const empIdx = emps.findIndex(e=>e.id===inp.dataset.emp);
+    if(empIdx===-1) return;
+    if(!emps[empIdx].leaveBalance) emps[empIdx].leaveBalance={};
+    emps[empIdx].leaveBalance[inp.dataset.type] = Math.max(0, parseFloat(inp.value)||0);
+  });
+  DB.set('employees', emps);
+  // Refresh currentUser if their balance changed
+  if(currentUser) { const fresh=emps.find(e=>e.id===currentUser.id); if(fresh) currentUser=fresh; }
+  toast(`Leave balances saved for all employees`);
+  closeModal('bulkLeaveModal');
+  loadEmployeesPage();
+}
+
+
 function openImportModal() { csvImportData=[]; document.getElementById('csvPreview').innerHTML=''; document.getElementById('importBtn').style.display='none'; openModal('importModal'); }
 
 function handleCSV(input) {
@@ -1866,7 +2088,9 @@ function handleCSV(input) {
       if(i===0 && line.toLowerCase().includes('firstname')) return; // skip header
       const cols = line.split(',').map(c=>c.trim().replace(/^"|"$/g,''));
       if(cols.length >= 8) {
-        csvImportData.push({ firstName:cols[0], lastName:cols[1], email:cols[2], phone:cols[3]||'', department:cols[4], designation:cols[5], joined:cols[6], salary:cols[7]||0, role:cols[8]||'employee', password:cols[9]||'Welcome@123' });
+        // cols[10]+ are opening leave balances keyed to leave types in order
+        const csvLeaveCols = cols.slice(10).map(v=>Math.max(0,parseFloat(v)||0));
+        csvImportData.push({ firstName:cols[0], lastName:cols[1], email:cols[2], phone:cols[3]||'', department:cols[4], designation:cols[5], joined:cols[6], salary:cols[7]||0, role:cols[8]||'employee', password:cols[9]||'Welcome@123', csvLeaveCols });
         preview.push(`<tr><td>${cols[0]} ${cols[1]}</td><td>${cols[2]}</td><td>${cols[4]}</td><td>${cols[5]}</td><td>${cols[8]||'employee'}</td></tr>`);
       }
     });
@@ -1889,8 +2113,17 @@ function importEmployees() {
   let added=0, skipped=0;
   csvImportData.forEach(d=>{
     if(emps.find(e=>e.email.toLowerCase()===d.email.toLowerCase())) { skipped++; return; }
-    const bal={}; types.forEach(t=>bal[t]=0);
-    emps.push({...d, id:uid(), active:true, leaveBalance:bal, createdAt:new Date().toISOString()});
+    // Build leave balance: use CSV columns if provided, else 0 (HR can set manually later)
+    const bal={};
+    types.forEach((t,i)=>{
+      if(t==='Unpaid') { bal[t]=0; return; }
+      // csvLeaveCols maps positionally to leave types (excluding Unpaid)
+      const nonUnpaidTypes = types.filter(x=>x!=='Unpaid');
+      const ni = nonUnpaidTypes.indexOf(t);
+      bal[t] = (d.csvLeaveCols && d.csvLeaveCols[ni] !== undefined) ? d.csvLeaveCols[ni] : 0;
+    });
+    const {csvLeaveCols, ...empData} = d;
+    emps.push({...empData, id:uid(), active:true, leaveBalance:bal, createdAt:new Date().toISOString()});
     added++;
   });
   DB.set('employees',emps);
@@ -1900,10 +2133,13 @@ function importEmployees() {
 }
 
 function downloadSampleCSV() {
-  const rows=[['FirstName','LastName','Email','Phone','Department','Designation','JoiningDate','Salary','Role','Password'],
-    ['John','Doe','john.doe@company.com','+91 9876543210','Engineering','Software Engineer','2024-01-15','60000','employee','Welcome@123'],
-    ['Jane','Smith','jane.smith@company.com','+91 9876543211','HR','HR Executive','2023-06-01','55000','hr','Welcome@123']];
-  downloadCSV(rows,'sample_employees.csv');
+  const s = getSettings();
+  const types = s.leaveTypes||LEAVE_TYPES_DEFAULT;
+  const nonUnpaid = types.filter(t=>t!=='Unpaid');
+  const header = ['FirstName','LastName','Email','Phone','Department','Designation','JoiningDate','Salary','Role','Password',...nonUnpaid.map(t=>t+'Leave')];
+  const row1 = ['John','Doe','john.doe@company.com','+91 9876543210','Engineering','Software Engineer','2024-01-15','60000','employee','Welcome@123',...nonUnpaid.map(()=>0)];
+  const row2 = ['Jane','Smith','jane.smith@company.com','+91 9876543211','HR','HR Executive','2023-06-01','55000','hr','Welcome@123',...nonUnpaid.map(()=>5)];
+  downloadCSV([header,row1,row2],'sample_employees.csv');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2114,29 +2350,47 @@ function updateNotifBadge() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// LEAVE ACCRUAL (runs monthly)
+// LEAVE ACCRUAL — runs once per calendar month on login
+// Adds leaveAccrual days to every active employee's non-Unpaid
+// leave types. Never resets or overwrites existing balances.
 // ═══════════════════════════════════════════════════════════
 function accrueLeaves() {
   const key = 'lastAccrual';
   const last = DB.getOne(key, null);
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  if(last === thisMonth) return;
+  if(last === thisMonth) {
+    // Accrual already ran this month — just make sure currentUser is fresh
+    if(currentUser) {
+      const fresh = getEmployees().find(e=>e.id===currentUser.id);
+      if(fresh) currentUser = fresh;
+    }
+    return;
+  }
 
   const s = getSettings();
   const accrual = s.leaveAccrual || 1.75;
   const types = s.leaveTypes || LEAVE_TYPES_DEFAULT;
   const emps = getEmployees();
+
   emps.forEach(e=>{
     if(!e.active) return;
     if(!e.leaveBalance) e.leaveBalance = {};
     types.forEach(t=>{
-      if(t!=='Unpaid') e.leaveBalance[t]=(e.leaveBalance[t]||0)+accrual;
+      if(t !== 'Unpaid') {
+        e.leaveBalance[t] = +(( (e.leaveBalance[t] || 0) + accrual ).toFixed(2));
+      }
     });
   });
+
   DB.set('employees', emps);
   DB.set(key, thisMonth);
-  if(currentUser) { const fresh=emps.find(e=>e.id===currentUser.id); if(fresh) currentUser=fresh; }
+
+  // Refresh currentUser with updated balance
+  if(currentUser) {
+    const fresh = emps.find(e=>e.id===currentUser.id);
+    if(fresh) currentUser = fresh;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
