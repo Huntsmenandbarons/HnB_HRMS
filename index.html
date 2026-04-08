@@ -1043,12 +1043,131 @@ input[type=file] { display:none; }
 
 <script>
 // ═══════════════════════════════════════════════════════════
-// DATA LAYER — localStorage persistence
+// GOOGLE SHEETS BACKEND
 // ═══════════════════════════════════════════════════════════
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyhE50GS9cD0RzMpa22Ff1Tt8SOjVbKDQh9ulZPbc0tN9bTQYZLhFD9Ik2YwvVFB_Jq/exec';
+
+// In-memory cache — all data loaded once at login, written back on every change
+const CACHE = { employees:[], attendance:[], leaves:[], notifications:[], settings:null, accrual:null };
+
+// Show/hide full-screen loader
+function showLoader(msg='Loading…') {
+  let el = document.getElementById('globalLoader');
+  if(!el) {
+    el = document.createElement('div');
+    el.id = 'globalLoader';
+    el.style.cssText = 'position:fixed;inset:0;background:rgba(26,31,54,0.82);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#fff;font-family:DM Sans,sans-serif';
+    el.innerHTML = '<div style="width:44px;height:44px;border:3px solid rgba(255,255,255,0.2);border-top-color:#5865f2;border-radius:50%;animation:spin 0.8s linear infinite"></div><div id="loaderMsg" style="font-size:14px;opacity:0.8"></div>';
+    document.head.insertAdjacentHTML('beforeend','<style>@keyframes spin{to{transform:rotate(360deg)}}</style>');
+    document.body.appendChild(el);
+  }
+  document.getElementById('loaderMsg').textContent = msg;
+  el.style.display = 'flex';
+}
+function hideLoader() { const el=document.getElementById('globalLoader'); if(el) el.style.display='none'; }
+
+// Sheets API helpers
+async function sheetsRead(sheetName) {
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method:'POST', body: JSON.stringify({ action:'read', sheet:sheetName })
+    });
+    const json = await res.json();
+    if(!json.ok) return [];
+    const rows = json.data;
+    if(!rows || rows.length < 2) return [];
+    const headers = rows[0];
+    return rows.slice(1).filter(r=>r.some(c=>c!=='')).map(r=>{
+      const obj={};
+      headers.forEach((h,i)=>{ obj[h]=r[i]===''?undefined:r[i]; });
+      return obj;
+    });
+  } catch(e) { console.error('sheetsRead error',e); return []; }
+}
+
+async function sheetsWrite(sheetName, dataArray) {
+  if(!dataArray || dataArray.length===0) {
+    // Write empty (just header row if we know it)
+    try {
+      await fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify({ action:'write', sheet:sheetName, rows:[] }) });
+    } catch(e){}
+    return;
+  }
+  const headers = Object.keys(dataArray[0]);
+  const rows = [headers, ...dataArray.map(obj=>headers.map(h=>{ const v=obj[h]; return v===undefined||v===null?'':typeof v==='object'?JSON.stringify(v):v; }))];
+  try {
+    await fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify({ action:'write', sheet:sheetName, rows }) });
+  } catch(e) { console.error('sheetsWrite error',e); }
+}
+
+async function sheetsReadOne(sheetName, def=null) {
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method:'POST', body: JSON.stringify({ action:'read', sheet:sheetName })
+    });
+    const json = await res.json();
+    if(!json.ok || !json.data || json.data.length<2) return def;
+    return JSON.parse(json.data[1][0]);
+  } catch(e) { return def; }
+}
+
+async function sheetsWriteOne(sheetName, value) {
+  const rows = [['data'],[JSON.stringify(value)]];
+  try {
+    await fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify({ action:'write', sheet:sheetName, rows }) });
+  } catch(e) { console.error('sheetsWriteOne error',e); }
+}
+
+// ── Load ALL data from Sheets into cache at login ──
+async function loadAllData() {
+  showLoader('Connecting to database…');
+  const [emps, att, leavs, notifs, settRaw, accrualRaw] = await Promise.all([
+    sheetsRead('employees'),
+    sheetsRead('attendance'),
+    sheetsRead('leaves'),
+    sheetsRead('notifications'),
+    sheetsReadOne('settings', null),
+    sheetsReadOne('accrual', null),
+  ]);
+
+  // Parse JSON fields in employees (leaveBalance stored as JSON string)
+  CACHE.employees = emps.map(e=>{
+    try { e.leaveBalance = e.leaveBalance ? JSON.parse(e.leaveBalance) : {}; } catch{ e.leaveBalance={}; }
+    e.active = e.active==='true'||e.active===true;
+    return e;
+  });
+
+  // Parse attendance booleans
+  CACHE.attendance = att.map(a=>{ a.isLate=a.isLate==='true'||a.isLate===true; a.hours=parseFloat(a.hours)||0; return a; });
+  CACHE.leaves = leavs.map(l=>{ l.days=parseInt(l.days)||0; return l; });
+  CACHE.notifications = notifs.map(n=>{ n.read=n.read==='true'||n.read===true; return n; });
+
+  CACHE.settings = settRaw || {
+    orgName:'My Organisation', workStart:'09:00', workEnd:'18:00',
+    graceMins:15, leaveAccrual:1.75, leaveTypes:LEAVE_TYPES_DEFAULT, holidays:[]
+  };
+  if(typeof CACHE.settings === 'string') { try { CACHE.settings=JSON.parse(CACHE.settings); } catch{} }
+
+  CACHE.accrual = accrualRaw;
+  hideLoader();
+}
+
+// ── Sync helpers (write cache → Sheets in background) ──
+function syncEmployees() {
+  const toWrite = CACHE.employees.map(e=>({...e, leaveBalance:JSON.stringify(e.leaveBalance||{})}));
+  sheetsWrite('employees', toWrite);
+}
+function syncAttendance()    { sheetsWrite('attendance', CACHE.attendance); }
+function syncLeaves()        { sheetsWrite('leaves', CACHE.leaves); }
+function syncNotifications() { sheetsWrite('notifications', CACHE.notifications); }
+function syncSettings()      { sheetsWriteOne('settings', CACHE.settings); }
+function syncAccrual(val)    { sheetsWriteOne('accrual', val); }
+
+// ── DB facade — same API as before, now uses cache ──
 const DB = {
-  get(k, def=[]) { try { const v=localStorage.getItem('nexushr_'+k); return v?JSON.parse(v):def; } catch{ return def; }},
-  set(k,v) { localStorage.setItem('nexushr_'+k,JSON.stringify(v)); },
-  getOne(k,def=null) { try { const v=localStorage.getItem('nexushr_'+k); return v?JSON.parse(v):def; } catch{ return def; }},
+  get(k, def=[])    { return CACHE[k] !== undefined ? CACHE[k] : def; },
+  set(k, v)         { CACHE[k]=v; if(k==='employees') syncEmployees(); else if(k==='attendance') syncAttendance(); else if(k==='leaves') syncLeaves(); else if(k==='notifications') syncNotifications(); else if(k==='settings') syncSettings(); },
+  getOne(k, def=null) { if(k==='settings') return CACHE.settings||def; if(k==='lastAccrual') return CACHE.accrual||def; if(k==='currentUser') return null; return def; },
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -1067,23 +1186,19 @@ const LEAVE_TYPES_DEFAULT = ['Casual','Sick','Paid','Unpaid'];
 const COLORS = ['#5865f2','#10b981','#f59e0b','#ef4444','#3b82f6','#8b5cf6','#ec4899'];
 
 function getSettings() {
-  return DB.getOne('settings', {
+  return CACHE.settings || {
     orgName:'My Organisation', workStart:'09:00', workEnd:'18:00',
-    graceMins:15, leaveAccrual:1.75,
-    leaveTypes: LEAVE_TYPES_DEFAULT,
-    holidays: []
-  });
+    graceMins:15, leaveAccrual:1.75, leaveTypes:LEAVE_TYPES_DEFAULT, holidays:[]
+  };
 }
-
-function getEmployees() { return DB.get('employees'); }
-function getAttendance() { return DB.get('attendance'); }
-function getLeaves() { return DB.get('leaves'); }
-function getNotifications() { return DB.get('notifications'); }
+function getEmployees()     { return CACHE.employees; }
+function getAttendance()    { return CACHE.attendance; }
+function getLeaves()        { return CACHE.leaves; }
+function getNotifications() { return CACHE.notifications; }
 
 function saveNotification(empId, type, message, icon='bell') {
-  const notifs = getNotifications();
-  notifs.unshift({ id: uid(), empId, type, message, icon, read: false, ts: new Date().toISOString() });
-  DB.set('notifications', notifs);
+  CACHE.notifications.unshift({ id:uid(), empId, type, message, icon, read:false, ts:new Date().toISOString() });
+  syncNotifications();
   updateNotifBadge();
 }
 
@@ -1091,71 +1206,84 @@ function uid() { return Date.now().toString(36) + Math.random().toString(36).sli
 
 function avatarColor(name='') {
   const colors = ['#5865f2','#10b981','#f59e0b','#ef4444','#3b82f6','#8b5cf6','#ec4899','#14b8a6'];
-  let h = 0; for(let c of name) h = (h << 5) - h + c.charCodeAt(0);
-  return colors[Math.abs(h) % colors.length];
+  let h=0; for(let c of name) h=(h<<5)-h+c.charCodeAt(0);
+  return colors[Math.abs(h)%colors.length];
 }
 
 function initials(name='') {
-  return name.split(' ').filter(Boolean).map(p=>p[0]).join('').toUpperCase().slice(0,2) || '??';
+  return name.split(' ').filter(Boolean).map(p=>p[0]).join('').toUpperCase().slice(0,2)||'??';
 }
+
+// ─── Session stored in sessionStorage only (per-tab, not cross-device) ───
+function saveSession(emp) { try { sessionStorage.setItem('nexushr_user', JSON.stringify(emp)); } catch{} }
+function loadSession()    { try { const v=sessionStorage.getItem('nexushr_user'); return v?JSON.parse(v):null; } catch{ return null; } }
+function clearSession()   { try { sessionStorage.removeItem('nexushr_user'); } catch{} }
 
 // ═══════════════════════════════════════════════════════════
 // AUTH
 // ═══════════════════════════════════════════════════════════
 function showSetup() { openModal('setupModal'); }
 
-function createOrg() {
-  const name = V('org-name'), admin = V('org-admin-name'), email = V('org-admin-email'),
-        pass = V('org-admin-pass'), tz = V('org-tz'), industry = V('org-industry');
+async function createOrg() {
+  const name=V('org-name'), admin=V('org-admin-name'), email=V('org-admin-email'),
+        pass=V('org-admin-pass'), tz=V('org-tz'), industry=V('org-industry');
   if(!name||!admin||!email||!pass) return toast('Please fill all fields','error');
 
-  const settings = getSettings();
-  settings.orgName = name; settings.industry = industry; settings.timezone = tz;
-  DB.set('settings', settings);
+  showLoader('Setting up your organisation…');
+  await loadAllData(); // load fresh (likely empty)
+
+  CACHE.settings = { ...getSettings(), orgName:name, industry, timezone:tz };
+  syncSettings();
 
   const emp = {
-    id: uid(), firstName: admin.split(' ')[0], lastName: admin.split(' ').slice(1).join(' ')||'',
+    id:uid(), firstName:admin.split(' ')[0], lastName:admin.split(' ').slice(1).join(' ')||'',
     email, phone:'', department:'Administration', designation:'HR Admin',
-    joined: new Date().toISOString().slice(0,10), salary:0,
-    role:'admin', managerId:'', password: pass, notes:'', active:true,
-    leaveBalance: initLeaveBalance()
+    joined:new Date().toISOString().slice(0,10), salary:0,
+    role:'admin', managerId:'', password:pass, notes:'', active:true,
+    leaveBalance:initLeaveBalance()
   };
-  const emps = getEmployees();
-  emps.push(emp);
-  DB.set('employees', emps);
+  CACHE.employees.push(emp);
+  syncEmployees();
+
+  hideLoader();
   closeModal('setupModal');
-  toast('Organisation created! Please login with admin credentials.');
+  toast('Organisation created! Please sign in.');
 }
 
 function initLeaveBalance() {
-  const s = getSettings();
-  const types = s.leaveTypes || LEAVE_TYPES_DEFAULT;
-  const bal = {};
-  types.forEach(t => bal[t] = 0);
-  return bal;
+  const s=getSettings(); const types=s.leaveTypes||LEAVE_TYPES_DEFAULT;
+  const bal={}; types.forEach(t=>bal[t]=0); return bal;
 }
 
-function doLogin() {
-  const email = V('login-email'), pass = V('login-pass'), role = V('login-role');
+async function doLogin() {
+  const email=V('login-email'), pass=V('login-pass');
   if(!email||!pass) return toast('Enter email and password','error');
-  const emps = getEmployees();
-  const emp = emps.find(e => e.email.toLowerCase()===email.toLowerCase() && e.password===pass);
-  if(!emp) return toast('Invalid credentials','error');
-  if(!emp.active) return toast('Account is deactivated','error');
+
+  showLoader('Signing in…');
+  await loadAllData();
+
+  const emp = CACHE.employees.find(e=>e.email.toLowerCase()===email.toLowerCase()&&e.password===pass);
+  if(!emp) { hideLoader(); return toast('Invalid email or password','error'); }
+  if(!emp.active) { hideLoader(); return toast('Account is deactivated. Contact HR.','error'); }
+
   currentUser = emp;
-  DB.set('currentUser', emp);
+  saveSession(emp);
   startApp();
 }
 
 function logout() {
-  currentUser = null;
-  DB.set('currentUser', null);
+  currentUser=null;
+  clearSession();
   document.getElementById('app').style.display='none';
   document.getElementById('auth-screen').style.display='flex';
   clearInterval(clockInterval);
+  // Reset cache
+  CACHE.employees=[]; CACHE.attendance=[]; CACHE.leaves=[];
+  CACHE.notifications=[]; CACHE.settings=null; CACHE.accrual=null;
 }
 
 function startApp() {
+  hideLoader();
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app').style.display='flex';
   updateSidebarUser();
@@ -1167,39 +1295,41 @@ function startApp() {
 }
 
 function applyRoleUI() {
-  const isAdmin = ['admin','hr'].includes(currentUser.role);
-  const isMgr = currentUser.role === 'manager';
-  document.querySelectorAll('.admin-only').forEach(el => {
-    el.style.display = (isAdmin||isMgr) ? '' : 'none';
+  const isAdmin=['admin','hr'].includes(currentUser.role);
+  const isMgr=currentUser.role==='manager';
+  document.querySelectorAll('.admin-only').forEach(el=>{
+    el.style.display=(isAdmin||isMgr)?'':'none';
   });
 }
 
 function updateSidebarUser() {
-  const u = currentUser;
-  const name = `${u.firstName} ${u.lastName}`.trim();
-  const initl = initials(name);
-  const color = avatarColor(name);
-  document.getElementById('sidebarAvatar').textContent = initl;
-  document.getElementById('sidebarAvatar').style.background = color;
-  document.getElementById('sidebarName').textContent = name;
-  document.getElementById('sidebarRole').textContent = ROLE_LABELS[u.role]||u.role;
-  document.getElementById('topbarAvatar').textContent = initl;
-  document.getElementById('topbarAvatar').style.background = color;
+  const u=currentUser;
+  const name=`${u.firstName} ${u.lastName}`.trim();
+  const initl=initials(name), color=avatarColor(name);
+  document.getElementById('sidebarAvatar').textContent=initl;
+  document.getElementById('sidebarAvatar').style.background=color;
+  document.getElementById('sidebarName').textContent=name;
+  document.getElementById('sidebarRole').textContent=ROLE_LABELS[u.role]||u.role;
+  document.getElementById('topbarAvatar').textContent=initl;
+  document.getElementById('topbarAvatar').style.background=color;
 }
 
-// Auto-login if session exists
-window.addEventListener('DOMContentLoaded', () => {
-  const org = DB.getOne('settings');
-  const u = DB.getOne('currentUser');
-  if(u && org) {
-    // re-fetch fresh employee data
-    const emps = getEmployees();
-    const fresh = emps.find(e=>e.id===u.id);
-    if(fresh) { currentUser=fresh; startApp(); return; }
+// Auto-login from session (same tab/browser session only)
+window.addEventListener('DOMContentLoaded', async () => {
+  const saved = loadSession();
+  if(saved) {
+    showLoader('Resuming session…');
+    await loadAllData();
+    const fresh = CACHE.employees.find(e=>e.id===saved.id);
+    if(fresh && fresh.active) { currentUser=fresh; saveSession(fresh); startApp(); return; }
+    clearSession(); hideLoader();
   }
-  // Show auth
   document.getElementById('auth-screen').style.display='flex';
-  if(!org) setTimeout(()=>toast('Welcome! Please setup your organisation first.','info'),500);
+  // Show welcome tip if no employees yet
+  setTimeout(async()=>{
+    const emps = await sheetsRead('employees');
+    if(emps.length===0) toast('Welcome! Click "Setup your organisation" to get started.','info');
+  }, 600);
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -2351,20 +2481,13 @@ function updateNotifBadge() {
 
 // ═══════════════════════════════════════════════════════════
 // LEAVE ACCRUAL — runs once per calendar month on login
-// Adds leaveAccrual days to every active employee's non-Unpaid
-// leave types. Never resets or overwrites existing balances.
 // ═══════════════════════════════════════════════════════════
 function accrueLeaves() {
-  const key = 'lastAccrual';
-  const last = DB.getOne(key, null);
+  const last = CACHE.accrual;
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   if(last === thisMonth) {
-    // Accrual already ran this month — just make sure currentUser is fresh
-    if(currentUser) {
-      const fresh = getEmployees().find(e=>e.id===currentUser.id);
-      if(fresh) currentUser = fresh;
-    }
+    if(currentUser) { const fresh=getEmployees().find(e=>e.id===currentUser.id); if(fresh) currentUser=fresh; }
     return;
   }
 
@@ -2375,22 +2498,17 @@ function accrueLeaves() {
 
   emps.forEach(e=>{
     if(!e.active) return;
-    if(!e.leaveBalance) e.leaveBalance = {};
+    if(!e.leaveBalance) e.leaveBalance={};
     types.forEach(t=>{
-      if(t !== 'Unpaid') {
-        e.leaveBalance[t] = +(( (e.leaveBalance[t] || 0) + accrual ).toFixed(2));
-      }
+      if(t!=='Unpaid') e.leaveBalance[t]=+((e.leaveBalance[t]||0)+accrual).toFixed(2);
     });
   });
 
-  DB.set('employees', emps);
-  DB.set(key, thisMonth);
+  CACHE.accrual = thisMonth;
+  syncEmployees();
+  syncAccrual(thisMonth);
 
-  // Refresh currentUser with updated balance
-  if(currentUser) {
-    const fresh = emps.find(e=>e.id===currentUser.id);
-    if(fresh) currentUser = fresh;
-  }
+  if(currentUser) { const fresh=emps.find(e=>e.id===currentUser.id); if(fresh) currentUser=fresh; }
 }
 
 // ═══════════════════════════════════════════════════════════
